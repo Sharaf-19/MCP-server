@@ -8,95 +8,89 @@ dotenv.config();
 
 // create the MCP server
 const server = new McpServer({
-    name: "Sharaf's Calendar",
-    version: "1.0.0",
+  name: "Sharaf's Calendar",
+  version: "1.0.0",
 });
 
 // tool function
 async function getMyCalendarDataByDate(date) {
-    const calendar = google.calendar({
-        version: "v3",
-        auth: process.env.GOOGLE_PUBLIC_API_KEY,
+  const calendar = google.calendar({
+    version: "v3",
+    auth: process.env.GOOGLE_PUBLIC_API_KEY,
+  });
+
+  // Ensure we have a Date object
+  const inputDate = date instanceof Date ? date : new Date(date);
+
+  // Calculate the start and end of the given date (UTC)
+  const start = new Date(inputDate);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  try {
+    const res = await calendar.events.list({
+      calendarId: process.env.CALENDAR_ID,
+      timeMin: start.toISOString(),
+      timeMax: end.toISOString(),
+      maxResults: 10,
+      singleEvents: true,
+      orderBy: "startTime",
+      timeZone: "Asia/Riyadh",
     });
 
-    // Calculate the start and end of the given date (UTC)
-    const start = new Date(date);
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 1);
+    console.log("API response:", res.data);
 
-    try {
-        const res = await calendar.events.list({
-            calendarId: process.env.CALENDAR_ID,
-            timeMin: start.toISOString(),
-            timeMax: end.toISOString(),
-            maxResults: 10,
-            singleEvents: true,
-            orderBy: "startTime",
-        });
+    const events = res.data.items || [];
+    const meetings = events.map((event) => {
+      const start = event.start.dateTime || event.start.date;
+      return `${event.summary} at ${start}`;
+    });
 
-        const events = res.data.items || [];
-        const meetings = events.map((event) => {
-            const start = event.start.dateTime || event.start.date;
-            return `${event.summary} at ${start}`;
-        });
-
-        if (meetings.length > 0) {
-            return {
-                meetings,
-            };
-        } else {
-            return {
-                meetings: [],
-            };
-        }
-    } catch (err) {
-        return {
-            error: err.message,
-        };
-    }
+    return { meetings };
+  } catch (err) {
+    return { error: err.message };
+  }
 }
 
 // register the tool to MCP
-server.registerTool(
-    "getMyCalendarDataByDate",
-    {
-      date: z.string().describe("Date string (YYYY-MM-DD) or 'today'"),
-    },
-    async ({ date }) => {
-      let targetDate;
-      if (date.toLowerCase() === "today") {
-        targetDate = new Date();
-      } else {
-        const parsed = Date.parse(date);
-        if (isNaN(parsed)) {
-          return {
-            content: [
-              { type: "text", text: "❌ Invalid date. Use YYYY-MM-DD or 'today'." },
-            ],
-          };
-        }
-        targetDate = new Date(parsed);
-      }
+server.tool(
+  "getMyCalendarDataByDate",
+  {
+    date: z.string().optional(), // make optional
+  },
+  async ({ date }) => {
+
   
-      const result = await getMyCalendarDataByDate(targetDate.toISOString());
-  
-      return {
-        content: [
-          { type: "text", text: JSON.stringify(result, null, 2) },
-        ],
-      };
+    let targetDate;
+    if (!date || date.toLowerCase() === "today") {
+      targetDate = new Date();
+    } else if (date.toLowerCase() === "tomorrow") {
+      targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + 1);
+    } else {
+      targetDate = new Date(date);
     }
-  );
+  
+  
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(await getMyCalendarDataByDate(targetDate)),
+        },
+      ],
+    };
+  }  
+);
 
-// set transfort
+// set transport
 async function init() {
-    const transport = new StdioServerTransport();
-    console.log("🚀 MCP server starting...");
+  const transport = new StdioServerTransport();
+  console.log("🚀 MCP server starting...");
 
-    await server.connect(transport);
-    console.log("✅ MCP server connected via stdio");
-
+  await server.connect(transport);
+  console.log("✅ MCP server connected via stdio");
 }
 
 // call the initialization
